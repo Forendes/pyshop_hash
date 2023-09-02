@@ -2,6 +2,7 @@ pub mod tests;
 
 use clap::Parser;
 use sha256::digest;
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Barrier};
 use std::thread;
@@ -34,7 +35,7 @@ fn main() {
 ///
 /// # Panics:
 /// If N is 0.
-fn find_n_0_hash(n: usize, find: usize) -> Vec<(usize, std::string::String)> {
+pub fn find_n_0_hash(n: usize, find: usize) -> Vec<(usize, std::string::String)> {
     if n == 0 {
         panic!("N of zeros must be at least 1");
     }
@@ -54,7 +55,7 @@ fn find_n_0_hash(n: usize, find: usize) -> Vec<(usize, std::string::String)> {
         let filter = "0".repeat(n);
         let thread_tx = tx.clone();
         // Collect local results of each thread
-        let mut local_queue = Vec::new();
+        let mut local_queue = VecDeque::new();
         thread::spawn(move || {
             // Calculate hash, each thread starts with index of its own number and goes by step equal to amount of cpus.
             for mut v in (i..usize::MAX).step_by(cpus) {
@@ -63,7 +64,7 @@ fn find_n_0_hash(n: usize, find: usize) -> Vec<(usize, std::string::String)> {
                     if hash.ends_with(&filter) {
                         // Found hash => increment atomic counter.
                         c.fetch_add(1, Ordering::SeqCst);
-                        local_queue.push((v, hash));
+                        local_queue.push_back((v, hash));
                     }
                 // Got enough hashes, let every thread to calculate hashes until max step,
                 // possibly insert new hashes that are lower value.
@@ -90,7 +91,7 @@ fn find_n_0_hash(n: usize, find: usize) -> Vec<(usize, std::string::String)> {
                     while v < max.load(Ordering::SeqCst) {
                         let hash = digest(v.to_string());
                         if hash.ends_with(&filter) {
-                            local_queue.push((v, hash));
+                            local_queue.push_back((v, hash));
                         }
                         v += cpus;
                     }
@@ -103,13 +104,27 @@ fn find_n_0_hash(n: usize, find: usize) -> Vec<(usize, std::string::String)> {
 
     let mut results = Vec::with_capacity(cpus);
     for _ in 0..cpus {
-        results.push(rx.recv());
+        results.push(rx.recv().unwrap());
     }
 
-    let mut result = Vec::new();
-    for i in results {
-        result.append(&mut i.unwrap());
+    let mut result: Vec<(usize, String)> = Vec::new();
+    let mut counter = 0;
+    while counter < find {
+        let mut min = None;
+        let mut min_idx = None;
+        for (idx, queue) in results.iter().enumerate() {
+            let new_min = if queue.is_empty() {
+                continue;
+            } else {
+                &queue[0]
+            };
+            if min.map_or(true, |min| min > new_min) {
+                min_idx = Some(idx);
+                min = Some(new_min);
+            }
+        }
+        result.push(results[min_idx.unwrap()].pop_front().unwrap());
+        counter += 1;
     }
-    result.sort();
-    return result[0..find].to_vec();
+    result
 }
