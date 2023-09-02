@@ -34,7 +34,7 @@ fn main() {
 ///
 /// # Panics:
 /// If N is 0.
-pub fn find_n_0_hash(n: usize, find: usize) -> Vec<(usize, std::string::String)> {
+fn find_n_0_hash(n: usize, find: usize) -> Vec<(usize, std::string::String)> {
     if n == 0 {
         panic!("N of zeros must be at least 1");
     }
@@ -44,7 +44,6 @@ pub fn find_n_0_hash(n: usize, find: usize) -> Vec<(usize, std::string::String)>
 
     let (tx, rx) = mpsc::channel();
     let cpus = num_cpus::get();
-    let mut handles = Vec::new();
     let barrier = Arc::new(Barrier::new(cpus));
 
     // Start spawning threads
@@ -56,7 +55,7 @@ pub fn find_n_0_hash(n: usize, find: usize) -> Vec<(usize, std::string::String)>
         let thread_tx = tx.clone();
         // Collect local results of each thread
         let mut local_queue = Vec::new();
-        let handle = thread::spawn(move || {
+        thread::spawn(move || {
             // Calculate hash, each thread starts with index of its own number and goes by step equal to amount of cpus.
             for mut v in (i..usize::MAX).step_by(cpus) {
                 if c.load(Ordering::SeqCst) < find {
@@ -100,16 +99,11 @@ pub fn find_n_0_hash(n: usize, find: usize) -> Vec<(usize, std::string::String)>
                 }
             }
         });
-        handles.push(handle);
     }
 
     let mut results = Vec::with_capacity(cpus);
     for _ in 0..cpus {
         results.push(rx.recv());
-    }
-
-    for handle in handles {
-        handle.join().unwrap();
     }
 
     let mut result = Vec::new();
